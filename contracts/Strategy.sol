@@ -93,8 +93,6 @@ contract Strategy is BaseStrategy {
 
     function cloneStrategy(
         address _vault,
-        address _staker,
-        address _router,
         address _truefilendpool,
         address _farm
     ) external returns (address newStrategy) {
@@ -284,12 +282,17 @@ contract Strategy is BaseStrategy {
         uint256 balanceStaked = balanceOfStake();
         if (_amountNeeded > balanceWant) {
             uint256 amountToWithdraw = (Math.min(balanceStaked, _amountNeeded - balanceWant));
+            //TODO Remove or keep?
+            //Check if amount toWithdraw is > liquid value aka available funds in lp,if so reduce amount we withdraw
+            amountToWithdraw = Math.min(lender.liquidValue(), amountToWithdraw);
             // unstake needed amount
             truFarm.unstake(amountToWithdraw);
             lender.liquidExit(amountToWithdraw);
         }
         // Since we might free more than needed, let's send back the min
         _liquidatedAmount = Math.min(balanceOfWant(), _amountNeeded);
+        //This shouldnt happen most of the time unless there is a exit fee added or we withdraw lesser due to low available liq
+        _loss = _amountNeeded.sub(_liquidatedAmount);
     }
 
     function prepareMigration(address _newStrategy) internal override {

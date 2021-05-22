@@ -7,6 +7,8 @@ interface ITrueFiLendingPool {
 
     function join(uint256) external;
 
+    function liquidValue() external view returns (uint256);
+
     function liquidExit(uint256 amount) external;
 
     function pauseStatus() external view returns (bool);
