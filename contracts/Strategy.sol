@@ -19,6 +19,10 @@ import "../interfaces/ITrueFarm.sol";
 
 interface ITrueFiLendingPoolToken is ITrueFiLendingPool, IERC20 {}
 
+interface IERC20Extended is IERC20 {
+    function decimals() external view returns (uint256);
+}
+
 contract Strategy is BaseStrategy {
     using SafeERC20 for IERC20;
     using SafeERC20 for ITrueFiLendingPoolToken;
@@ -137,9 +141,18 @@ contract Strategy is BaseStrategy {
         return lender.balanceOf(address(this));
     }
 
+    function pricePerLendToken() public view returns (uint256) {
+        return (lender.poolValue().mul(BASIS_PRECISION)).div(lender.totalSupply());
+    }
+
     //Returns staked value
     function balanceOfStake() public view returns (uint256) {
         return truFarm.staked(address(this));
+    }
+
+    //Returns staked value
+    function balanceOfStakeInWant() public view returns (uint256) {
+        return truFarm.staked(address(this)).mul(pricePerLendToken()).div(BASIS_PRECISION);
     }
 
     function pendingReward() public view returns (uint256) {
@@ -148,7 +161,7 @@ contract Strategy is BaseStrategy {
 
     function estimatedTotalAssets() public view override returns (uint256) {
         //Add the want balance and staked balance
-        return balanceOfWant().add(balanceOfStake());
+        return balanceOfWant().add(balanceOfStakeInWant());
     }
 
     function _claimAndSwapNoOneInch() internal {
@@ -269,7 +282,11 @@ contract Strategy is BaseStrategy {
             lender.join(toInvest);
             //add loss to cover if we get lesser than what we enter with
             uint256 balLend = balanceOfLendToken();
-            if (balLend < toInvest) depositFeesToCover = depositFeesToCover.add(toInvest.sub(balLend));
+            uint256 pricePerLend = pricePerLendToken();
+            uint256 expectedLendIncrease = pricePerLend.mul(toInvest).div(BASIS_PRECISION);
+            if (balLend < expectedLendIncrease) {
+                depositFeesToCover = depositFeesToCover.add((expectedLendIncrease.sub(balLend)).mul(pricePerLend).div(BASIS_PRECISION));
+            }
             //Stake those tokens to tru farm for tru rewards
             truFarm.stake(balanceOfLendToken());
         }
@@ -279,12 +296,12 @@ contract Strategy is BaseStrategy {
         // NOTE: Maintain invariant `want.balanceOf(this) >= _liquidatedAmount`
         // NOTE: Maintain invariant `_liquidatedAmount + _loss <= _amountNeeded`
         uint256 balanceWant = balanceOfWant();
-        uint256 balanceStaked = balanceOfStake();
+        uint256 balanceStaked = balanceOfStakeInWant();
         if (_amountNeeded > balanceWant) {
             uint256 amountToWithdraw = (Math.min(balanceStaked, _amountNeeded - balanceWant));
-            //TODO Remove or keep?
-            //Check if amount toWithdraw is > liquid value aka available funds in lp,if so reduce amount we withdraw
-            amountToWithdraw = Math.min(lender.liquidValue(), amountToWithdraw);
+            // require(lender.liquidValue() >= amountToWithdraw,"Insufficient liq");
+            //Convert it to amount to exit via pps
+            amountToWithdraw = amountToWithdraw.mul(pricePerLendToken()).div(BASIS_PRECISION);
             // unstake needed amount
             truFarm.unstake(amountToWithdraw);
             lender.liquidExit(amountToWithdraw);
@@ -293,6 +310,15 @@ contract Strategy is BaseStrategy {
         _liquidatedAmount = Math.min(balanceOfWant(), _amountNeeded);
         //This shouldnt happen most of the time unless there is a exit fee added or we withdraw lesser due to low available liq
         _loss = _amountNeeded.sub(_liquidatedAmount);
+    }
+
+    function liquidateAllPositions() internal virtual override returns (uint256 _amountFreed) {
+        (_amountFreed, ) = liquidatePosition(type(uint256).max);
+    }
+
+    function ethToWant(uint256 _amtInWei) public view virtual override returns (uint256) {
+        uint256[] memory amounts = router.getAmountsOut(_amtInWei, getTokenOutPath(address(weth), address(want)));
+        return amounts[amounts.length - 1];
     }
 
     function prepareMigration(address _newStrategy) internal override {

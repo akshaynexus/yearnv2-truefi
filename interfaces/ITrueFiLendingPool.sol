@@ -16,4 +16,6 @@ interface ITrueFiLendingPool {
     function pull(uint256 minTokenAmount) external;
 
     function token() external view returns (address);
+
+    function poolValue() external view returns (uint256);
 }

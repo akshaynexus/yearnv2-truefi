@@ -2,6 +2,7 @@ import pytest
 
 from brownie import Wei, chain
 
+from common_utils import getEstimatedAfterFees, get_change
 
 @pytest.mark.require_network("mainnet-fork")
 def test_migrate(
@@ -29,4 +30,4 @@ def test_migrate(
     )
     vault.migrateStrategy(strategy, strategy2, {"from": gov})
     # Check that we got all the funds on migration
-    assert strategy2.estimatedTotalAssets() == totalasset_beforemig
+    assert strategy2.estimatedTotalAssets() >= getEstimatedAfterFees(totalasset_beforemig)

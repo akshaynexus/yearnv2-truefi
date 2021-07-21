@@ -1,5 +1,6 @@
 import pytest
 from brownie import Wei, accounts, chain
+from common_utils import getEstimatedAfterFees, get_change
 
 # reference code taken from yHegic repo and stecrv strat
 # https://github.com/Macarse/yhegic
@@ -18,7 +19,6 @@ def test_operation(
     alice,
     strategist,
     guardian,
-    interface,
 ):
     # Amount configs
     test_budget = 888000 * 1e6
@@ -26,6 +26,10 @@ def test_operation(
     deposit_limit = 889000 * 1e6
     bob_deposit = 100000 * 1e6
     alice_deposit = 788000 * 1e6
+
+    total_deposit = bob_deposit + alice_deposit
+    #Get atleast enough to cover exit costs
+    targetAssets = total_deposit + (total_deposit * (0.16 / 100))
     currency.approve(whale, approve_amount, {"from": whale})
     currency.transferFrom(whale, gov, test_budget, {"from": whale})
 
@@ -42,8 +46,17 @@ def test_operation(
 
     vault.deposit(bob_deposit, {"from": bob})
     vault.deposit(alice_deposit, {"from": alice})
-    # Sleep and harvest 5 times,approx for 24 hours
-    sleepAndHarvest(5, strategy, gov)
+    blockedMined = 0
+    while strategy.estimatedTotalAssets() < targetAssets:
+        chain.sleep(50000)
+        strategy.harvest({"from": gov})
+        blockedMined = blockedMined + 1
+        print(f"Mined blocks :{blockedMined}")
+        print(f"Loss Remaing to cover {get_change(strategy.estimatedTotalAssets(), targetAssets)}")
+    #sleep for 6 hours
+    chain.sleep(6*60*60)
+    # # Sleep and harvest 5 times,approx for 24 hours
+    # sleepAndHarvest(5, strategy, gov)
     # We should have made profit or stayed stagnant (This happens when there is no rewards in 1INCH rewards)
     assert vault.pricePerShare() / 1e6 >= 1
     # Log estimated APR
@@ -66,8 +79,9 @@ def test_operation(
 def sleepAndHarvest(times, strat, gov):
     for i in range(times):
         debugStratData(strat, "Before harvest" + str(i))
-        chain.sleep(17280)
-        chain.mine(1)
+        # for j in range(139):
+        #     chain.sleep(13)
+        #     chain.mine(1)
         strat.harvest({"from": gov})
         debugStratData(strat, "After harvest" + str(i))
 
